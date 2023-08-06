@@ -84,6 +84,7 @@ def server_term():
 			s.close()
 			# close server socket
 """
+
 while running:
 
 	# we keep listening for new connections all the time
