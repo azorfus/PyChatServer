@@ -51,7 +51,29 @@ def file_transfer(file_name):
 	return 0
 
 def file_download(file_name):
-	print()
+	s.send("file!download!request".encode())
+	needed = file_name + ":@!"
+	needed_packet = needed.ljust(256, "#")
+	s.send(needed_packet.encode())
+	packet_info = s.recv(256).decode()
+	packet_struct = packet_info.split(":@!")
+	
+	rem = int(packet_struct[1])
+	quo = int(packet_struct[0])
+	print(rem, ", ", quo)
+
+	file = open(packet_struct[2], "wb")
+	data = bytearray()
+	count = 0
+	packet = 0
+	while count <= quo + 1:
+		packet = cs.recv(4096)
+		data += packet
+		count += 1
+	
+	file.write(data)
+	file.close()
+	print("file downloaded... ", f"file name: {packet_struct[2]}, size: {packet_struct[0]*4096 + packet_struct[1]} bytes.\n")
 
 # make a thread that listens for messages to this client & print them
 t = Thread(target=listen_for_messages)
