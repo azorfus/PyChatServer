@@ -19,24 +19,29 @@ print(f"[*] Listening as {host}:{port}")
 def send_file(cs):
 	file_name_raw = cs.recv(256).decode()
 	file_name = file_name_raw.split(":@!")[0]
+	print(file_name_raw, " -> ", file_name)
 
 	try:
 		file = open(file_name, "rb")
+		file_size = os.path.getsize(file_name)
+
 	except Exception as e:
 		print("Cannot open file.\n" + "-"*20 + f"\n{e}\n" + "-"*20  + "\n")
 		return 0
 
-	file_size = os.path.getsize(file_name)
-
 	rem = int(file_size % 4096)
 	quo = int((file_size - rem)/4096)
 	file_name_back = file_name.split("__")[1]
+	print(file_name_back)
 
-	packet_info = str(quo) + ":@!$" + str(rem) + ":@!$" + file_name_back + ":@!$"
+	packet_info = str(quo) + ":@!" + str(rem) + ":@!" + file_name_back + ":@!"
 	send_packet = packet_info.ljust(256, "#")
-	s.send(send_packet.encode())
-	s.sendall(file.read())
+	cs.send(send_packet.encode())
+
+	cs.sendall(file.read())
+	
 	file.close()
+
 	return 0
 	
 
