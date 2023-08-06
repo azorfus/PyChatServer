@@ -50,30 +50,34 @@ def file_transfer(file_name):
 	file.close()
 	return 0
 
-def file_download(file_name):
-	s.send("file!download!request".encode())
+def file_download(file_name):	
 	needed = file_name + ":@!"
 	needed_packet = needed.ljust(256, "#")
 	s.send(needed_packet.encode())
+	
 	packet_info = s.recv(256).decode()
 	packet_struct = packet_info.split(":@!")
-	
+
 	rem = int(packet_struct[1])
 	quo = int(packet_struct[0])
-	print(rem, ", ", quo)
+	print(packet_struct[2], ", ", rem, ", ", quo)
 
 	file = open(packet_struct[2], "wb")
+
 	data = bytearray()
 	count = 0
 	packet = 0
-	while count <= quo + 1:
-		packet = cs.recv(4096)
+	while count <= quo:
+		print("counter: ", count)
+		packet = s.recv(4096)
+		print(packet)
 		data += packet
 		count += 1
 	
 	file.write(data)
 	file.close()
-	print("file downloaded... ", f"file name: {packet_struct[2]}, size: {packet_struct[0]*4096 + packet_struct[1]} bytes.\n")
+	print("file downloaded... ", f"file name: {packet_struct[2]}, size: {quo*4096 + rem} bytes.\n")
+	return 0
 
 # make a thread that listens for messages to this client & print them
 t = Thread(target=listen_for_messages)
@@ -94,15 +98,12 @@ while True:
 
 	elif to_send.strip() == "!upload file":
 		fileName = input("Enter file name: ")
-		f_t = Thread(target = file_transfer, args = (fileName,))
-		f_t.daemon = True
-		f_t.start()
+		file_transfer(fileName)
 
 	elif to_send.strip() == "!download file":
 		fileName = input("Enter <user>__<file name>: ")
-		f_d = Thread(target = file_download, args = (fileName,))
-		f_d.daemon = True
-		f_d.start()
+		s.send("file!download!request".encode())
+		file_download(fileName)
 
 	else:
 		# add the datetime, name & the color of the sender
