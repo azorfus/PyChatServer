@@ -28,20 +28,24 @@ def recv_file(cs):
 
 	data = bytearray()
 	count = 0
-	
+	packet = 0
 	while count <= quo:
+		packet = cs.recv(4096)
+		data += packet
+		count += 1
+	'''
 		if count == quo:
-			packet = cs.recv(rem)
+			packet = cs.recv(4096)
 			data += packet
+			print("[*] Last packet data:\n", packet)
 		else:
 			packet = cs.recv(4096)
 			data += packet
-		count += 1
+	'''
 
-	empty_socket(cs)
 	file.write(data)
 	file.close()
-	upload_info = f"{packet_struct[3]} uploaded file {packet_struct[2]} size: {quo*4096+rem}.\nTo download the file, Type \"download <user>__<filename>\""
+	upload_info = f"{packet_struct[3]} uploaded file {packet_struct[2]} size: {quo*4096+rem} bytes.\nTo download the file, Type \"!download file\" and then enter the file name in the format <username>__<file name>i.e. \"{packet_struct[3]}__{packet_struct[2]}\""
 	for client_socket in client_sockets:
 		client_socket.send(upload_info.encode())
 	return 0
@@ -54,7 +58,9 @@ def listen_for_client(cs):
 			if msg == "client!exit!code":
 				client_sockets.remove(cs)
 			elif msg == "file!transfer!code":
-				recv_file(cs)
+				f_recv = Thread(target = recv_file, args = (cs,))
+				f_recv.daemon = True
+				f_recv.start()
 				dont = True
 			else:
 				dont = False
