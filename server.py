@@ -1,5 +1,6 @@
 import socket
 from threading import Thread
+import os
 
 host = "192.168.1.6"
 port = 8080
@@ -15,6 +16,30 @@ running = True
 
 print(f"[*] Listening as {host}:{port}")
 
+def send_file(cs):
+	file_name_raw = cs.recv(256).decode()
+	file_name = file_name_raw.split(":@!")[0]
+
+	try:
+		file = open(file_name, "rb")
+	except Exception as e:
+		print("Cannot open file.\n" + "-"*20 + f"\n{e}\n" + "-"*20  + "\n")
+		return 0
+
+	file_size = os.path.getsize(file_name)
+
+	rem = int(file_size % 4096)
+	quo = int((file_size - rem)/4096)
+	file_name_back = file_name.split("__")[1]
+
+	packet_info = str(quo) + ":@!$" + str(rem) + ":@!$" + file_name_back + ":@!$"
+	send_packet = packet_info.ljust(256, "#")
+	s.send(send_packet.encode())
+	s.sendall(file.read())
+	file.close()
+	return 0
+	
+
 def recv_file(cs):
 	cs_ip = cs.getpeername()
 
@@ -23,29 +48,21 @@ def recv_file(cs):
 
 	rem = int(packet_struct[1])
 	quo = int(packet_struct[0])
+	print(rem, ", ", quo)
 
 	file = open(f"{packet_struct[3]}__{packet_struct[2]}", "wb")
 
 	data = bytearray()
 	count = 0
 	packet = 0
-	while count <= quo:
+	while count <= quo+1:
 		packet = cs.recv(4096)
 		data += packet
 		count += 1
-	'''
-		if count == quo:
-			packet = cs.recv(4096)
-			data += packet
-			print("[*] Last packet data:\n", packet)
-		else:
-			packet = cs.recv(4096)
-			data += packet
-	'''
 
 	file.write(data)
 	file.close()
-	upload_info = f"{packet_struct[3]} uploaded file {packet_struct[2]} size: {quo*4096+rem} bytes.\nTo download the file, Type \"!download file\" and then enter the file name in the format <username>__<file name>i.e. \"{packet_struct[3]}__{packet_struct[2]}\""
+	upload_info = f"{packet_struct[3]} uploaded file {packet_struct[2]} size: {quo*4096+rem} bytes.\nTo download the file, Type \"!download file\" and then enter the file name in the format <username>__<file name>i.e. \"{packet_struct[3]}__{packet_struct[2]}\"\n"
 	for client_socket in client_sockets:
 		client_socket.send(upload_info.encode())
 	return 0
@@ -58,12 +75,10 @@ def listen_for_client(cs):
 			if msg == "client!exit!code":
 				client_sockets.remove(cs)
 			elif msg == "file!transfer!code":
-				f_recv = Thread(target = recv_file, args = (cs,))
-				f_recv.daemon = True
-				f_recv.start()
-				dont = True
-			else:
-				dont = False
+				recv_file(cs)
+			elif msg == "file!download!request":
+				send_file(cs)
+
 		except Exception as e:
 			print(f"[!] Error: {e}")
 			client_sockets.remove(cs)
@@ -84,7 +99,6 @@ def server_term():
 			s.close()
 			# close server socket
 """
-
 while running:
 
 	# we keep listening for new connections all the time
