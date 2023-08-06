@@ -15,17 +15,58 @@ running = True
 
 print(f"[*] Listening as {host}:{port}")
 
+def recv_file(cs):
+	cs_ip = cs.getpeername()
+
+	packet_info = cs.recv(256).decode()
+	packet_struct = packet_info.split(":@!$")
+
+	rem = int(packet_struct[1])
+	quo = int(packet_struct[0])
+
+	file = open(f"{packet_struct[3]}__{packet_struct[2]}", "wb")
+
+	data = bytearray()
+	count = 0
+	
+	while count <= quo:
+		if count == quo:
+			packet = cs.recv(rem)
+			data += packet
+		else:
+			packet = cs.recv(4096)
+			data += packet
+		count += 1
+
+	empty_socket(cs)
+	file.write(data)
+	file.close()
+	upload_info = f"{packet_struct[3]} uploaded file {packet_struct[2]} size: {quo*4096+rem}.\nTo download the file, Type \"download <user>__<filename>\""
+	for client_socket in client_sockets:
+		client_socket.send(upload_info.encode())
+	return 0
+
 def listen_for_client(cs):
+	dont = False
 	while True:
 		try:
 			msg = cs.recv(1024).decode()
+			if msg == "client!exit!code":
+				client_sockets.remove(cs)
+			elif msg == "file!transfer!code":
+				recv_file(cs)
+				dont = True
+			else:
+				dont = False
 		except Exception as e:
 			print(f"[!] Error: {e}")
 			client_sockets.remove(cs)
 		else:
-			msg = msg.replace(sep_tok, ": ")
-		for client_socket in client_sockets:
-			client_socket.send(msg.encode())
+			if not dont:
+				msg = msg.replace(sep_tok, ": ")
+				for client_socket in client_sockets:
+					client_socket.send(msg.encode())
+
 """
 def server_term():
 	while True:
