@@ -30,7 +30,6 @@ def listen_for_messages():
 			print("\n" + message)
 
 def file_transfer(file_name):
-	pos = 0
 	try:
 		file = open(file_name, "rb")
 	except Exception as e:
@@ -51,6 +50,8 @@ def file_transfer(file_name):
 	file.close()
 	return 0
 
+def file_download(file_name):
+	print()
 
 # make a thread that listens for messages to this client & print them
 t = Thread(target=listen_for_messages)
@@ -69,11 +70,18 @@ while True:
 		s.send(quit_code.encode())
 		break
 
-	elif to_send == "upload file":
+	elif to_send.strip() == "!upload file":
 		fileName = input("Enter file name: ")
 		f_t = Thread(target = file_transfer, args = (fileName,))
 		f_t.daemon = True
 		f_t.start()
+
+	elif to_send.strip() == "!download file":
+		fileName = input("Enter <user>__<file name>: ")
+		f_d = Thread(target = file_download, args = (fileName,))
+		f_d.daemon = True
+		f_d.start()
+
 	else:
 		# add the datetime, name & the color of the sender
 		to_send = f"[{date_now}] {name}{separator_token}{to_send}"
