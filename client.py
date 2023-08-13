@@ -11,7 +11,7 @@ import time
 from datetime import datetime
 import os
 
-SERVER_HOST = str(input("Host IP: "))
+SERVER_HOST = str(input("Enter Host IP: "))
 SERVER_PORT = 8080
 separator_token = "<SEP>"
 
@@ -51,23 +51,27 @@ def listen_for_messages():
 		
 
 def file_transfer(file_name):
+	print("\n[*] Establishing tunnel to server, this may take a moment...")
+	time.sleep(2)
+	fs = socket.socket()
 	try:
+		fs.connect((SERVER_HOST, fsport))
 		file = open(file_name, "rb")
-		s.send("file!transfer!code".encode())
 		file_size = os.path.getsize(file_name)
 		rem = int(file_size % 4096)
 		quo = int((file_size - rem)/4096)
 		packet_info = str(quo) + ":@!$" + str(rem) + ":@!$" + file_name + ":@!$" + name + ":@!$"
 		send_packet = packet_info.ljust(256, "#")
-		s.send(send_packet.encode())
+		fs.send(send_packet.encode())
 
 		# packet transmission
-		s.sendall(file.read())
+		fs.sendall(file.read())
 
 		file.close()
 
 	except Exception as e:
-		print(f"[!] Error: {e}")
+		print(f"[!] Could not establish file transfer tunnel.\nError: {e}")
+		fs.close()
 		return 0
 
 	return 0
@@ -129,6 +133,8 @@ while True:
 	
 		elif to_send.strip() == "!upload file":
 			fileName = input("Enter file name: ")
+			to_send = "file!transfer!code!@:"
+			s.send(to_send.ljust(1024, "#").encode())
 			file_transfer(fileName)
 	
 		elif to_send.strip() == "!download file":
@@ -145,5 +151,4 @@ while True:
 		print(f"[!] Error: {e}")
 
 s.close()
-
 
