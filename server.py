@@ -10,7 +10,7 @@ import threading
 import time
 import os
 
-host = "192.168.1.11"
+host = str(input("Host IP: "))
 port = 8080
 sep_tok = "<SEP>"
 MAX_LISTEN_TIME = 2
