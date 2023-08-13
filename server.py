@@ -1,130 +1,171 @@
+'''
+
+	Written by Azorfus
+	Github: @azorfus
+
+'''
+
 import socket
-from threading import Thread
+import threading
+import time
 import os
 
-host = "192.168.1.6"
+host = "192.168.1.11"
 port = 8080
 sep_tok = "<SEP>"
+MAX_LISTEN_TIME = 2
+exit_flag = threading.Event()
 
-client_sockets = set()
+client_sockets = []
 s = socket.socket()
 s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 s.bind((host, port))
-s.listen(10)
-
-running = True
+s.listen(20)
 
 print(f"[*] Listening as {host}:{port}")
 
-def send_file(cs):
-	file_name_raw = cs.recv(256).decode()
-	file_name = file_name_raw.split(":@!")[0]
-	print(file_name_raw, " -> ", file_name)
-
+def send_file(cs, file_name):
 	try:
 		file = open(file_name, "rb")
 		file_size = os.path.getsize(file_name)
 
-	except Exception as e:
-		print("Cannot open file.\n" + "-"*20 + f"\n{e}\n" + "-"*20  + "\n")
-		return 0
-
-	rem = int(file_size % 4096)
-	quo = int((file_size - rem)/4096)
-	file_name_back = file_name.split("__")[1]
-	print(file_name_back)
-
-	packet_info = str(quo) + ":@!" + str(rem) + ":@!" + file_name_back + ":@!"
-	send_packet = packet_info.ljust(256, "#")
-	cs.send(send_packet.encode())
-
-	cs.sendall(file.read())
+		rem = int(file_size % 4096)
+		quo = int((file_size - rem)/4096)
+		file_name_back = file_name.split("__")[1]
 	
-	file.close()
+		# Packet with file size and name information.
+		packet_info = str(quo) + ":@!" + str(rem) + ":@!" + file_name_back + ":@!"
+		send_packet = packet_info.ljust(256, "#")
+		cs.send(send_packet.encode())
+		cs.sendall(file.read())
+		
+		file.close()
+
+	except Exception as e:
+		print(f"[!] Error: {e}")
+		return 0
 
 	return 0
 	
 
+
+def establish_conn(cs, file_name):
+
+	# Start time of the server
+	start_time = time.time()
+
+	fs = socket.socket()
+	fs.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+	fs.bind((host, fport))
+	print("[*] Listening for file tunnel connection...")
+
+	# Listen for file tunnel connections within the time limit
+	fs.listen(1)
+	while (time.time() - start_time) <= MAX_LISTEN_TIME:
+		try:
+			fcs, fcaddr = fs.accept()
+			print(f"[*] File transfer tunnel established with {fcaddr}")
+			send_file(fcs, file_name)
+			print(f"[*] File transfer tunnel successfully closing...")
+		except socket.timeout:
+			print("Timing out...")
+			pass  # Ignore timeout and continue listening
+
+	fs.close()
+
+
 def recv_file(cs):
 	cs_ip = cs.getpeername()
 
-	packet_info = cs.recv(256).decode()
+	packet_info = cs.recv(256).decode('utf-8', errors='ignore')
 	packet_struct = packet_info.split(":@!$")
 
 	rem = int(packet_struct[1])
 	quo = int(packet_struct[0])
-	print(rem, ", ", quo)
 
-	file = open(f"{packet_struct[3]}__{packet_struct[2]}", "wb")
+	with open(f"{packet_struct[3]}__{packet_struct[2]}", "wb") as file:
 
-	data = bytearray()
-	count = 0
-	packet = 0
-	while count <= quo+1:
-		packet = cs.recv(4096)
-		data += packet
-		count += 1
+		count = 0
+		packet = 0
+		while count <= quo:
+			print(packet)
+			if count == quo:
+				packet = cs.recv(rem)
+			else:
+				packet = cs.recv(4096)
+			file.write(packet)
+			count += 1
 
-	file.write(data)
-	file.close()
+		file.close()
+
 	upload_info = f"{packet_struct[3]} uploaded file {packet_struct[2]} size: {quo*4096+rem} bytes.\nTo download the file, Type \"!download file\" and then enter the file name in the format <username>__<file name>i.e. \"{packet_struct[3]}__{packet_struct[2]}\"\n"
 	for client_socket in client_sockets:
 		client_socket.send(upload_info.encode())
 	return 0
 
 def listen_for_client(cs):
-	dont = False
-	while True:
+	while not exit_flag.is_set():
 		try:
-			msg = cs.recv(1024).decode()
+			msg_R = cs.recv(1024).decode('utf-8', errors='ignore')
+			msg = msg_R.split("!@:")[0]
+
 			if msg == "client!exit!code":
+				print(f"[*] Client: {cs.getpeername()[0]} has closed the connection.")
 				client_sockets.remove(cs)
+				cs.close()
+				break
+
 			elif msg == "file!transfer!code":
 				recv_file(cs)
-			elif msg == "file!download!request":
-				send_file(cs)
+
+			elif msg.split("!@$:")[0] == "file!download!request":
+				file_name = msg.split("!@$:")[1]
+				establish_conn(cs, file_name)
+
+			else:
+				msg_R = msg.replace(sep_tok, ": ") + "!@$:"
+				msg = msg_R.ljust(1024, "#")
+				for client_socket in client_sockets:
+					client_socket.send(msg.encode())
 
 		except Exception as e:
 			print(f"[!] Error: {e}")
 			client_sockets.remove(cs)
-		else:
-			if not dont:
-				msg = msg.replace(sep_tok, ": ")
-				for client_socket in client_sockets:
-					client_socket.send(msg.encode())
+			cs.close()
+			break
 
-"""
 def server_term():
-	while True:
-		cmd = input("$> ")
-		if cmd == "quit":
-			running = False
+	while not exit_flag.is_set():
+		cmd = input("$ ")
+		if cmd == "ABORT":
+			exit_flag.set()
+			for i in threading.enumerate():
+				i.join()
 			for cs in client_sockets:
+				abort_code = "server!abort!code!abort!@$:".ljust(1024, "#")
+				cs.send(abort_code.encode())
 				cs.close()
 			s.close()
-			# close server socket
-"""
-while running:
+			break 
 
-	# we keep listening for new connections all the time
+
+term = threading.Thread(target = server_term)
+term.daemon = True
+term.start()
+
+while True:
 	client_socket, client_address = s.accept()
 	print(f"[+] {client_address} connected.")
-	# add the new connected client to connected sockets
-	client_sockets.add(client_socket)
-	# start a new thread that listens for each client's messages
+	client_sockets.append(client_socket)
 
-#	cmd = Thread(target = server_term, args = ())
-	t = Thread(target=listen_for_client, args=(client_socket,))
-#	cmd.daemon = True
+	fport = 8081 + client_sockets.index(client_socket)
+	sport = f"{fport}!@$:".ljust(256, "#")
+	client_socket.send(sport.encode())
 
-	# make the thread daemon so it ends whenever the main thread ends
-	t.daemon = True
-	# start the thread
-#	cmd.start()
-	t.start()
+	client_t = threading.Thread(target=listen_for_client, args=(client_socket,))
+	client_t.daemon = True
+	client_t.start()
 
-# close client sockets
-for cs in client_sockets:
-	cs.close()
-	# close server socket
 s.close()
+
+
