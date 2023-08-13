@@ -11,7 +11,7 @@ import time
 from datetime import datetime
 import os
 
-SERVER_HOST = "192.168.1.11"
+SERVER_HOST = str(input("Host IP: "))
 SERVER_PORT = 8080
 separator_token = "<SEP>"
 
