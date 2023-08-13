@@ -10,7 +10,7 @@ import threading
 import time
 import os
 
-host = str(input("Host IP: "))
+host = str(input("Enter Host IP: "))
 port = 8080
 sep_tok = "<SEP>"
 MAX_LISTEN_TIME = 2
@@ -88,7 +88,6 @@ def recv_file(cs):
 		count = 0
 		packet = 0
 		while count <= quo:
-			print(packet)
 			if count == quo:
 				packet = cs.recv(rem)
 			else:
@@ -103,6 +102,30 @@ def recv_file(cs):
 		client_socket.send(upload_info.encode())
 	return 0
 
+def establish_conn_recv(cs):
+
+	# Start time of the server
+	start_time = time.time()
+
+	fs = socket.socket()
+	fs.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+	fs.bind((host, fport))
+	print("[*] Listening for file tunnel connection...")
+
+	# Listen for file tunnel connections within the time limit
+	fs.listen(1)
+	while (time.time() - start_time) <= MAX_LISTEN_TIME:
+		try:
+			fcs, fcaddr = fs.accept()
+			print(f"[*] File transfer tunnel established with {fcaddr}")
+			recv_file(fcs)
+			print(f"[*] File transfer tunnel successfully closing...")
+		except socket.timeout:
+			print("Timing out...")
+			pass  # Ignore timeout and continue listening
+
+	fs.close()
+
 def listen_for_client(cs):
 	while not exit_flag.is_set():
 		try:
@@ -116,7 +139,7 @@ def listen_for_client(cs):
 				break
 
 			elif msg == "file!transfer!code":
-				recv_file(cs)
+				establish_conn_recv(cs)
 
 			elif msg.split("!@$:")[0] == "file!download!request":
 				file_name = msg.split("!@$:")[1]
