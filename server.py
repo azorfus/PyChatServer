@@ -10,7 +10,7 @@ import threading
 import time
 import os
 
-host = str(input("Enter Host IP: "))
+host = "192.168.1.11" # str(input("Enter Host IP: "))
 port = 8080
 sep_tok = "<SEP>"
 MAX_LISTEN_TIME = 2
@@ -47,9 +47,7 @@ def send_file(cs, file_name):
 
 	return 0
 	
-
-
-def establish_conn(cs, file_name):
+def establish_conn(cs, file_name, FPORT):
 
 	# Start time of the server
 	start_time = time.time()
@@ -60,24 +58,42 @@ def establish_conn(cs, file_name):
 	print("[*] Listening for file tunnel connection...")
 
 	# Listen for file tunnel connections within the time limit
-	fs.listen(1)
+	fs.listen(5)
+
+	confirmation = "file!tunnel!open!@$:"
+	confirmation = confirmation.ljust(1024, "#")
+	cs.send(confirmation.encode())
+
 	while (time.time() - start_time) <= MAX_LISTEN_TIME:
 		try:
 			fcs, fcaddr = fs.accept()
 			print(f"[*] File transfer tunnel established with {fcaddr}")
 			send_file(fcs, file_name)
 			print(f"[*] File transfer tunnel successfully closing...")
+			break
+			
+			confirmation = s.recv(1024).decode()
+			confirmation = confirmation.split("!@$:")[0]
+		
+			while confirmation != "file!download!success":
+				time.sleep(2)
+				print("[*] Waiting for download to finish....")
+				confirmation = s.recv(1024).decode()
+				confirmation = confirmation.split("!@$:")[0]
+
+			fcs.close()
+			fs.close()
+
 		except socket.timeout:
 			print("Timing out...")
 			pass  # Ignore timeout and continue listening
 
-	fs.close()
+	return 0
 
+def recv_file(kcs):
+	cs_ip = kcs.getpeername()
 
-def recv_file(cs):
-	cs_ip = cs.getpeername()
-
-	packet_info = cs.recv(256).decode('utf-8', errors='ignore')
+	packet_info = kcs.recv(256).decode('utf-8', errors='ignore')
 	packet_struct = packet_info.split(":@!$")
 
 	rem = int(packet_struct[1])
@@ -89,48 +105,62 @@ def recv_file(cs):
 		packet = 0
 		while count <= quo:
 			if count == quo:
-				packet = cs.recv(rem)
+				packet = kcs.recv(rem)
 			else:
-				packet = cs.recv(4096)
+				packet = kcs.recv(4096)
 			file.write(packet)
 			count += 1
 
 		file.close()
 
-	upload_info = f"{packet_struct[3]} uploaded file {packet_struct[2]} size: {quo*4096+rem} bytes.\nTo download the file, Type \"!download file\" and then enter the file name in the format <username>__<file name>i.e. \"{packet_struct[3]}__{packet_struct[2]}\"\n"
+	success = "file!upload!success!@$:"
+	success = success.ljust(1024, "#").encode()
+	
+	kcs.send(success)
+
+	upload_info = f"{packet_struct[3]} uploaded file {packet_struct[2]} size: {quo*4096+rem} bytes.\nTo download the file, Type \"!download file\" and\n then enter the file name in the format <username>__<file name>\ni.e. \"{packet_struct[3]}__{packet_struct[2]}\"\n"
 	for client_socket in client_sockets:
 		client_socket.send(upload_info.encode())
+	
 	return 0
 
-def establish_conn_recv(cs):
+def establish_conn_recv(cs, FPORT):
 
 	# Start time of the server
 	start_time = time.time()
 
 	fs = socket.socket()
 	fs.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-	fs.bind((host, fport))
+	fs.bind((host, FPORT))
 	print("[*] Listening for file tunnel connection...")
 
 	# Listen for file tunnel connections within the time limit
-	fs.listen(1)
+	fs.listen(5)
+
+	confirmation = "file!tunnel!open!@$:"
+	confirmation = confirmation.ljust(1024, "#")
+	cs.send(confirmation.encode())
+
 	while (time.time() - start_time) <= MAX_LISTEN_TIME:
 		try:
 			fcs, fcaddr = fs.accept()
 			print(f"[*] File transfer tunnel established with {fcaddr}")
 			recv_file(fcs)
 			print(f"[*] File transfer tunnel successfully closing...")
+			fcs.close()
+			fs.close()
+			break
 		except socket.timeout:
 			print("Timing out...")
 			pass  # Ignore timeout and continue listening
-
-	fs.close()
+	
+	return 0
 
 def listen_for_client(cs):
 	while not exit_flag.is_set():
-		try:
+		try:	
 			msg_R = cs.recv(1024).decode('utf-8', errors='ignore')
-			msg = msg_R.split("!@:")[0]
+			msg = msg_R.split("!@$:")[0]
 
 			if msg == "client!exit!code":
 				print(f"[*] Client: {cs.getpeername()[0]} has closed the connection.")
@@ -139,11 +169,13 @@ def listen_for_client(cs):
 				break
 
 			elif msg == "file!transfer!code":
-				establish_conn_recv(cs)
+				FPORT = int(msg_R.split("!@$:")[1])
+				establish_conn_recv(cs, FPORT)
 
 			elif msg.split("!@$:")[0] == "file!download!request":
-				file_name = msg.split("!@$:")[1]
-				establish_conn(cs, file_name)
+				FPORT = int(msg_R.split("!@$:")[1])
+				file_name = msg_R.split("!@$:")[2]
+				establish_conn(cs, file_name, FPORT)
 
 			else:
 				msg_R = msg.replace(sep_tok, ": ") + "!@$:"
