@@ -11,7 +11,7 @@ import time
 from datetime import datetime
 import os
 
-SERVER_HOST = str(input("Enter Host IP: "))
+SERVER_HOST = "192.168.1.11" # str(input("Enter Host IP: "))
 SERVER_PORT = 8080
 separator_token = "<SEP>"
 
@@ -52,7 +52,16 @@ def listen_for_messages():
 
 def file_transfer(file_name):
 	print("\n[*] Establishing tunnel to server, this may take a moment...")
-	time.sleep(2)
+
+	confirmation = s.recv(1024).decode()
+	confirmation = confirmation.split("!@$:")[0]
+
+	while confirmation != "file!tunnel!open":
+		time.sleep(2)
+		print("[*] Waiting....")
+		confirmation = s.recv(1024).decode()
+		confirmation = confirmation.split("!@$:")[0]
+
 	fs = socket.socket()
 	try:
 		fs.connect((SERVER_HOST, fsport))
@@ -74,11 +83,30 @@ def file_transfer(file_name):
 		fs.close()
 		return 0
 
+	confirmation = fs.recv(1024).decode()
+	confirmation = confirmation.split("!@$:")[0]
+	while confirmation != "file!upload!success":
+		time.sleep(2)
+		print("[*] Waiting....")
+		confirmation = fs.recv(1024).decode()
+		confirmation = confirmation.split("!@$:")[0]
+
+	print(f"[*] File transfer tunnel successfully closing... File transfer was successful.")
+	fs.close()
 	return 0
 
 def file_download(file_name):
 	print("\n[*] Establishing tunnel to server, this may take a moment...")
-	time.sleep(2)
+
+	confirmation = s.recv(1024).decode()
+	confirmation = confirmation.split("!@$:")[0]
+
+	while confirmation != "file!tunnel!open":
+		time.sleep(2)
+		print("[*] Waiting....")
+		confirmation = s.recv(1024).decode()
+		confirmation = confirmation.split("!@$:")[0]
+	
 	fs = socket.socket()
 	try:
 		fs.connect((SERVER_HOST, fsport))
@@ -108,13 +136,19 @@ def file_download(file_name):
 			f.write(data)
 			f.close()
 		print("[*] Closing file transfer tunnel...")
+		
+		done = "file!download!success!@$:"
+		done = done.ljust(1024, "#")
+		fs.send(done.encode())
 		fs.close()
+
 		print("File downloaded...", f"file name: {packet_struct[2]}, size: {quo * 4096 + rem} bytes.\n")
 
 	except Exception as e:
 		print(f"[!] Could not establish file transfer tunnel.\nError: {e}")
 		fs.close()
 		return 0
+
 	return 0
 
 lisn = threading.Thread(target = listen_for_messages)
@@ -127,28 +161,27 @@ while True:
 
 	try:
 		if to_send.lower() == 'quit':
-			to_send = "client!exit!code!@:"
+			to_send = "client!exit!code!@$:"
 			s.send(to_send.ljust(1024, "#").encode())
 			break
 	
 		elif to_send.strip() == "!upload file":
 			fileName = input("Enter file name: ")
-			to_send = "file!transfer!code!@:"
+			to_send = f"file!transfer!code!@$:{fsport}!@$:"
 			s.send(to_send.ljust(1024, "#").encode())
 			file_transfer(fileName)
 	
 		elif to_send.strip() == "!download file":
 			fileName = input("Enter <user>__<file name>: ")
-			to_send = "file!download!request!@$:" + fileName + "!@:"
+			to_send = f"file!download!request!@$:{fsport}!@$:" + fileName + "!@$:"
 			s.send(to_send.ljust(1024, "#").encode())
 			file_download(fileName)
 	
 		else:
-			to_send = f"[{date_now}] {name}{separator_token}{to_send}!@:"
+			to_send = f"[{date_now}] {name}{separator_token}{to_send}!@$:"
 			s.send(to_send.ljust(1024, "#").encode())
 		
 	except Exception as e:
 		print(f"[!] Error: {e}")
 
 s.close()
-
