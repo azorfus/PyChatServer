@@ -1,224 +1,179 @@
-'''
-
-	Written by Azorfus
-	Github: @azorfus
-
-'''
-
 import socket
 import threading
-import time
 import os
+import sys
+import csv
 
-host = "192.168.1.11" # str(input("Enter Host IP: "))
+host = str(input("Enter Host IP: "))
 port = 8080
-sep_tok = "<SEP>"
 MAX_LISTEN_TIME = 2
 exit_flag = threading.Event()
+exit_flag.set()
+msg_count = 0
 
 client_sockets = []
+client_threads = {}
+ban_list = []
 s = socket.socket()
+
 s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 s.bind((host, port))
+
 s.listen(20)
 
 print(f"[*] Listening as {host}:{port}")
 
-def send_file(cs, file_name):
-	try:
-		file = open(file_name, "rb")
-		file_size = os.path.getsize(file_name)
-
-		rem = int(file_size % 4096)
-		quo = int((file_size - rem)/4096)
-		file_name_back = file_name.split("__")[1]
-	
-		# Packet with file size and name information.
-		packet_info = str(quo) + ":@!" + str(rem) + ":@!" + file_name_back + ":@!"
-		send_packet = packet_info.ljust(256, "#")
-		cs.send(send_packet.encode())
-		cs.sendall(file.read())
-		
-		file.close()
-
-	except Exception as e:
-		print(f"[!] Error: {e}")
-		return 0
-
-	return 0
-	
-def establish_conn(cs, file_name, FPORT):
-
-	# Start time of the server
-	start_time = time.time()
-
-	fs = socket.socket()
-	fs.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-	fs.bind((host, fport))
-	print("[*] Listening for file tunnel connection...")
-
-	# Listen for file tunnel connections within the time limit
-	fs.listen(5)
-
-	confirmation = "file!tunnel!open!@$:"
-	confirmation = confirmation.ljust(1024, "#")
-	cs.send(confirmation.encode())
-
-	while (time.time() - start_time) <= MAX_LISTEN_TIME:
-		try:
-			fcs, fcaddr = fs.accept()
-			print(f"[*] File transfer tunnel established with {fcaddr}")
-			send_file(fcs, file_name)
-			print(f"[*] File transfer tunnel successfully closing...")
-			break
-			
-			confirmation = s.recv(1024).decode()
-			confirmation = confirmation.split("!@$:")[0]
-		
-			while confirmation != "file!download!success":
-				time.sleep(2)
-				print("[*] Waiting for download to finish....")
-				confirmation = s.recv(1024).decode()
-				confirmation = confirmation.split("!@$:")[0]
-
-			fcs.close()
-			fs.close()
-
-		except socket.timeout:
-			print("Timing out...")
-			pass  # Ignore timeout and continue listening
-
-	return 0
-
-def recv_file(kcs):
-	cs_ip = kcs.getpeername()
-
-	packet_info = kcs.recv(256).decode('utf-8', errors='ignore')
-	packet_struct = packet_info.split(":@!$")
-
-	rem = int(packet_struct[1])
-	quo = int(packet_struct[0])
-
-	with open(f"{packet_struct[3]}__{packet_struct[2]}", "wb") as file:
-
-		count = 0
-		packet = 0
-		while count <= quo:
-			if count == quo:
-				packet = kcs.recv(rem)
-			else:
-				packet = kcs.recv(4096)
-			file.write(packet)
-			count += 1
-
-		file.close()
-
-	success = "file!upload!success!@$:"
-	success = success.ljust(1024, "#").encode()
-	
-	kcs.send(success)
-
-	upload_info = f"{packet_struct[3]} uploaded file {packet_struct[2]} size: {quo*4096+rem} bytes.\nTo download the file, Type \"!download file\" and\n then enter the file name in the format <username>__<file name>\ni.e. \"{packet_struct[3]}__{packet_struct[2]}\"\n"
-	for client_socket in client_sockets:
-		client_socket.send(upload_info.encode())
-	
-	return 0
-
-def establish_conn_recv(cs, FPORT):
-
-	# Start time of the server
-	start_time = time.time()
-
-	fs = socket.socket()
-	fs.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-	fs.bind((host, FPORT))
-	print("[*] Listening for file tunnel connection...")
-
-	# Listen for file tunnel connections within the time limit
-	fs.listen(5)
-
-	confirmation = "file!tunnel!open!@$:"
-	confirmation = confirmation.ljust(1024, "#")
-	cs.send(confirmation.encode())
-
-	while (time.time() - start_time) <= MAX_LISTEN_TIME:
-		try:
-			fcs, fcaddr = fs.accept()
-			print(f"[*] File transfer tunnel established with {fcaddr}")
-			recv_file(fcs)
-			print(f"[*] File transfer tunnel successfully closing...")
-			fcs.close()
-			fs.close()
-			break
-		except socket.timeout:
-			print("Timing out...")
-			pass  # Ignore timeout and continue listening
-	
-	return 0
-
 def listen_for_client(cs):
-	while not exit_flag.is_set():
+
+	global logfile
+	global log_writer
+	global msg_count
+	global client_sockets
+	global client_threads
+	while exit_flag.is_set() and client_threads[cs][1].is_set():
+
+		if not client_threads[cs][1].is_set():
+			break
+
 		try:	
 			msg_R = cs.recv(1024).decode('utf-8', errors='ignore')
 			msg = msg_R.split("!@$:")[0]
+			msg_count = msg_count + 1
+
+			if msg_count >= 20:
+				logfile.flush()
+				msg_count = 0
 
 			if msg == "client!exit!code":
 				print(f"[*] Client: {cs.getpeername()[0]} has closed the connection.")
+				log_writer.writerow([" ", " ", "Closing Connection", cs.getpeername()[0]])
 				client_sockets.remove(cs)
 				cs.close()
 				break
 
-			elif msg == "file!transfer!code":
-				FPORT = int(msg_R.split("!@$:")[1])
-				establish_conn_recv(cs, FPORT)
-
-			elif msg.split("!@$:")[0] == "file!download!request":
-				FPORT = int(msg_R.split("!@$:")[1])
-				file_name = msg_R.split("!@$:")[2]
-				establish_conn(cs, file_name, FPORT)
-
 			else:
-				msg_R = msg.replace(sep_tok, ": ") + "!@$:"
-				msg = msg_R.ljust(1024, "#")
-				for client_socket in client_sockets:
-					client_socket.send(msg.encode())
+				if client_threads[cs][1].is_set():
+					info = msg_R.split("!@$#:")
+					log_writer.writerow([info[0], info[1], info[2].split("!@$:")[0], cs.getpeername()[0]])
+					msg_R = f"[{info[0]}] {info[1]}: {info[2]}!@$:"
+					msg = msg_R.ljust(1024, "#")
+					for client_socket in client_sockets:
+						client_socket.send(msg.encode())
 
 		except Exception as e:
-			print(f"[!] Error: {e}")
-			client_sockets.remove(cs)
-			cs.close()
-			break
+			if client_threads[cs][1].is_set():
+				print(f"[!] Error: {e}, A client probably aburptly ended the session.")
+				client_sockets.remove(cs)
+				client_threads[cs][1].clear()
+				cs.close()
+				return
+
 
 def server_term():
-	while not exit_flag.is_set():
+
+	global logfile
+	global exit_flag
+	global client_sockets
+
+	while exit_flag.is_set():
+
 		cmd = input("$ ")
-		if cmd == "ABORT":
-			exit_flag.set()
-			for i in threading.enumerate():
-				i.join()
+		if cmd == "abort":
+
+			exit_flag.clear()
+
+			clients_to_remove = []
+
 			for cs in client_sockets:
 				abort_code = "server!abort!code!abort!@$:".ljust(1024, "#")
 				cs.send(abort_code.encode())
+				clients_to_remove.append(cs)
+
+			for cs in clients_to_remove:
+				client_sockets.remove(cs)
 				cs.close()
-			s.close()
-			break 
+
+			os._exit(0)
+
+		elif cmd == "logflush":
+			# flushing all logging data to csv file from buffer.
+			logfile.flush()
+
+		elif cmd == "kick":
+			found = False
+			user_ip_to_kick = str(input("Enter IP of user to be kicked: "))
+			for cs in client_sockets:
+				if cs.getpeername()[0] == user_ip_to_kick:
+					client_sockets.remove(cs)
+					client_threads[cs][1].clear()
+					cs.close()
+					print(f"[!] User: {user_ip_to_kick} has been kicked!")
+					found = true
+
+			if not found:
+				print("[!] Given IP is not connected!")
+
+		elif cmd == "ban":
+			found = False
+			user_ip_to_ban = str(input("Enter IP of user to be banned: "))
+			for cs in client_sockets:
+				if cs.getpeername()[0] == user_ip_to_ban:
+					client_sockets.remove(cs)
+					client_threads[cs][1].clear()
+					cs.close()
+					ban_list.append(user_ip_to_ban)
+					print(f"[!] User: {user_ip_to_ban} has been banned!")
+					found = True
+
+			if not found:
+				print("[!] Given IP is not connected!")
+
+		elif cmd == "unban":
+			user_ip_to_unban = str(input("Enter IP of user to be unbanned: "))
+			if user_ip_to_unban in ban_list:
+				ban_list.remove(user_ip_to_unban)
+				print("[!] User has been unbanned!")
+			else:
+				print("[!] Given IP is not banned!")
+
+		elif cmd == "connections":
+			for cs in client_sockets:
+				print("[Connected User] ", cs.getpeername()[0])
+
+		elif cmd == "banlist":
+			for cs in ban_list:
+				print("[Banned User] ", cs)
 
 
-term = threading.Thread(target = server_term)
-term.daemon = True
-term.start()
 
-while True:
-	client_socket, client_address = s.accept()
-	print(f"[+] {client_address} connected.")
-	client_sockets.append(client_socket)
+with open("logfile.csv", "a+") as logfile:
 
-	fport = 8081 + client_sockets.index(client_socket)
-	sport = f"{fport}!@$:".ljust(256, "#")
-	client_socket.send(sport.encode())
+	log_writer = csv.writer(logfile, delimiter=",")
 
-	client_t = threading.Thread(target=listen_for_client, args=(client_socket,))
-	client_t.daemon = True
-	client_t.start()
+	term = threading.Thread(target = server_term)
+	
+	term.daemon = True
+	term.start()
+	
+	while True:
+		if not exit_flag.is_set:
+			break
+
+		client_socket, client_address = s.accept()
+
+		if client_socket.getpeername()[0] in ban_list:
+			client_socket.close()
+
+		else:
+			print(f"[+] {client_address} connected.")
+			client_sockets.append(client_socket)
+		
+			client_t = threading.Thread(target=listen_for_client, args=(client_socket,))
+			client_t.daemon = True
+			u_flag = threading.Event()
+			u_flag.set()
+
+			client_threads[client_socket] = [client_t, u_flag]
+			client_threads[client_socket][0].start()
 
 s.close()
